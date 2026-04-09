@@ -1,4 +1,4 @@
-import { Innertube } from 'youtubei.js';
+import { Innertube, UniversalCache } from 'youtubei.js';
 import { readFileSync, writeFileSync } from 'fs';
 
 
@@ -11,7 +11,7 @@ if (!videoId) {
 }
 
 const yt = await Innertube.create({
-  cache: new Innertube.UniversalCache(false)
+  cache: new UniversalCache(false)
 });
 
 const info = await yt.getInfo(videoId);
