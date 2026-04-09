@@ -45,39 +45,59 @@ async function main() {
 
   const clients = ['WEB', 'ANDROID', 'IOS'];
   let info = null;
-  let lastError = null;
+  let usedClient = null;
+
+  // Try to use cookies from environment variable if available
+  const cookies = process.env.YOUTUBE_COOKIES || null;
 
   for (const client of clients) {
     try {
       console.log(`Trying with ${client} client...`);
-      const yt = await Innertube.create({
+      const createOptions = {
         cache: new UniversalCache(true),
         generate_session_locally: true,
         client_name: client
-      });
+      };
+
+      if (cookies) {
+        createOptions.cookie = cookies;
+      }
+
+      const yt = await Innertube.create(createOptions);
 
       info = await yt.getInfo(videoId);
 
       if (info.streaming_data) {
         console.log(`✓ Successfully retrieved streaming data with ${client} client`);
+        usedClient = client;
         break;
       }
     } catch (err) {
-      lastError = err;
       console.log(`✗ Failed with ${client} client: ${err.message}`);
     }
   }
 
   if (!info || !info.streaming_data) {
-    const reason = info?.playability_status
-      ? ` (${info.playability_status.status}${info.playability_status.reason ? `: ${info.playability_status.reason}` : ''})`
-      : '';
-    throw new Error('Streaming data not available for this video. The video may be blocked, unavailable, or a live stream.' + reason);
+    const status = info?.playability_status?.status || 'UNKNOWN';
+    const reason = info?.playability_status?.reason || '';
+
+    if (status === 'LOGIN_REQUIRED') {
+      throw new Error(
+        `YouTube がボット確認を要求しています。\n` +
+        `このリポジトリに YOUTUBE_COOKIES シークレットを追加するか、\n` +
+        `ログイン不要な動画 URL を使用してください。\n` +
+        `(${status}${reason ? `: ${reason}` : ''})`
+      );
+    }
+
+    throw new Error(`Streaming data not available for this video. The video may be blocked, unavailable, or a live stream. (${status}${reason ? `: ${reason}` : ''})`);
   }
 
   const yt = await Innertube.create({
     cache: new UniversalCache(true),
-    generate_session_locally: true
+    generate_session_locally: true,
+    client_name: usedClient || 'WEB',
+    cookie: cookies || undefined
   });
 
   let format;
