@@ -1,9 +1,14 @@
 ﻿import { spawn } from 'child_process';
 import { readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
-async function runCommand(command, args) {
+async function runCommand(command, args, env = {}) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(command, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...env }
+    });
     let stdout = '';
     let stderr = '';
 
@@ -25,6 +30,47 @@ async function runCommand(command, args) {
   });
 }
 
+function writeCookies() {
+  const cookiesJson = process.env.YOUTUBE_COOKIES;
+  if (!cookiesJson) {
+    console.log('Note: YOUTUBE_COOKIES environment variable not set');
+    return null;
+  }
+
+  const cookieDir = join(process.cwd(), '.cookies');
+  if (!existsSync(cookieDir)) {
+    mkdirSync(cookieDir, { recursive: true });
+  }
+
+  const cookiePath = join(cookieDir, 'cookies.txt');
+  
+  try {
+    // Parse JSON cookies and convert to netscape format
+    const cookies = JSON.parse(cookiesJson);
+    let netscapeCookies = '# Netscape HTTP Cookie File\n# This is a generated file!\n\n';
+    
+    for (const cookie of cookies) {
+      const line = [
+        cookie.domain || '.youtube.com',
+        'TRUE',
+        cookie.path || '/',
+        cookie.secure ? 'TRUE' : 'FALSE',
+        cookie.expirationDate || '0',
+        cookie.name,
+        cookie.value
+      ].join('\t');
+      netscapeCookies += line + '\n';
+    }
+
+    writeFileSync(cookiePath, netscapeCookies);
+    console.log(`✓ Cookies loaded from environment: ${cookiePath}`);
+    return cookiePath;
+  } catch (error) {
+    console.log(`YOUTUBE_COOKIES format error: ${error.message}`);
+    return null;
+  }
+}
+
 async function main() {
   const input = readFileSync('yt.txt', 'utf-8').trim();
   
@@ -36,14 +82,23 @@ async function main() {
 
   console.log('Fetching streaming URL with yt-dlp...');
   
+  // Try to set up cookies
+  const cookiePath = writeCookies();
+  
   try {
-    // Use yt-dlp to get the best mp4 format
-    const url = await runCommand('yt-dlp', [
+    const args = [
       '--format=best[ext=mp4]',
       '--skip-download',
       '--get-url',
       input
-    ]);
+    ];
+
+    if (cookiePath) {
+      args.push('--cookies', cookiePath);
+    }
+
+    // Use yt-dlp to get the best mp4 format
+    const url = await runCommand('yt-dlp', args);
 
     if (!url) {
       throw new Error('yt-dlp returned empty URL');
@@ -58,11 +113,17 @@ async function main() {
     // Fallback: Try to get info in JSON format
     try {
       console.log('\nTrying alternative method...');
-      const jsonOutput = await runCommand('yt-dlp', [
+      const args = [
         '--dump-json',
         '--skip-download',
         input
-      ]);
+      ];
+
+      if (cookiePath) {
+        args.push('--cookies', cookiePath);
+      }
+
+      const jsonOutput = await runCommand('yt-dlp', args);
 
       const info = JSON.parse(jsonOutput);
       
@@ -89,6 +150,17 @@ async function main() {
       throw new Error('yt-dlp returned no usable URL in JSON');
     } catch (fallbackError) {
       console.error('✗ Fallback method also failed:', fallbackError.message);
+      
+      if (!cookiePath) {
+        throw new Error(
+          `Failed to retrieve video URL.\n` +
+          `このリポジトリに YOUTUBE_COOKIES シークレットを追加してください。\n` +
+          `GitHub Settings → Secrets and variables → Actions で YOUTUBE_COOKIES を追加し、\n` +
+          `ブラウザから YouTube の cookies をエクスポートしてください。\n` +
+          `${error.message}`
+        );
+      }
+      
       throw new Error(`Failed to retrieve video URL: ${error.message}`);
     }
   }
