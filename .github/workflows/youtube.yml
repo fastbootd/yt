@@ -1,0 +1,15 @@
+name: YouTube
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm install
+      - run: node main.js
+      - run: cat yt.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-url
+          path: yt.txt
