@@ -43,19 +43,42 @@ async function main() {
     throw new Error('有効なYouTube URLではありません: \n' + input);
   }
 
-  const yt = await Innertube.create({
-    cache: new UniversalCache(true),
-    generate_session_locally: true
-  });
+  const clients = ['WEB', 'ANDROID', 'IOS'];
+  let info = null;
+  let lastError = null;
 
-  const info = await yt.getInfo(videoId);
+  for (const client of clients) {
+    try {
+      console.log(`Trying with ${client} client...`);
+      const yt = await Innertube.create({
+        cache: new UniversalCache(true),
+        generate_session_locally: true,
+        client_name: client
+      });
 
-  if (!info.streaming_data) {
-    const reason = info.playability_status
+      info = await yt.getInfo(videoId);
+
+      if (info.streaming_data) {
+        console.log(`✓ Successfully retrieved streaming data with ${client} client`);
+        break;
+      }
+    } catch (err) {
+      lastError = err;
+      console.log(`✗ Failed with ${client} client: ${err.message}`);
+    }
+  }
+
+  if (!info || !info.streaming_data) {
+    const reason = info?.playability_status
       ? ` (${info.playability_status.status}${info.playability_status.reason ? `: ${info.playability_status.reason}` : ''})`
       : '';
     throw new Error('Streaming data not available for this video. The video may be blocked, unavailable, or a live stream.' + reason);
   }
+
+  const yt = await Innertube.create({
+    cache: new UniversalCache(true),
+    generate_session_locally: true
+  });
 
   let format;
   try {
