@@ -28,11 +28,19 @@ function evaluatePlayerScript(data, env) {
 
 Platform.shim.eval = evaluatePlayerScript;
 
-const youtubeUrl = readFileSync('yt.txt', 'utf-8').trim();
-const videoId = youtubeUrl.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+const input = readFileSync('yt.txt', 'utf-8').trim();
+const isDecodedUrl = input.includes('googlevideo.com/videoplayback');
+
+if (isDecodedUrl) {
+  console.log('既にデコード済みの再生URLです。');
+  console.log(input);
+  process.exit(0);
+}
+
+const videoId = input.match(/(?:v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/)?.[1];
 
 if (!videoId) {
-  console.error('有効なYouTube URLではありません: \n' + youtubeUrl);
+  console.error('有効なYouTube URLではありません: \n' + input);
   process.exit(1);
 }
 
