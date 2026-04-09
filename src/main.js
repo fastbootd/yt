@@ -2,33 +2,30 @@
 import { readFileSync, writeFileSync } from 'fs';
 import vm from 'node:vm';
 
-function evaluatePlayerScript(data, env) {
-  const sandbox = {
-    ...env,
-    globalThis: {},
-    window: {},
-    self: {},
-    document: {},
-    navigator: { userAgent: 'node.js' },
-    URL,
-    URLSearchParams,
-    TextEncoder,
-    TextDecoder,
-    encodeURIComponent,
-    decodeURIComponent,
-    atob: (input) => Buffer.from(input, 'base64').toString('binary'),
-    btoa: (input) => Buffer.from(input, 'binary').toString('base64')
-  };
-  sandbox.globalThis = sandbox;
-  const context = vm.createContext(sandbox);
-  const wrappedOutput = `(function() {
+Platform.shim.eval = async (data, env) => {
+  const props = [];
+  if (env.n) props.push(`n: exportedVars.nFunction("${env.n}")`);
+  if (env.sig) props.push(`sig: exportedVars.sigFunction("${env.sig}")`);
+  const code = `(function(){
 ${data.output}
+return { ${props.join(', ')} }
 })()`;
-  const script = new vm.Script(wrappedOutput);
-  return script.runInContext(context);
+  return vm.runInNewContext(code);
+};
+
+function extractVideoId(input) {
+  const match = input.match(/(?:v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/);
+  if (match) return match[1];
+  if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;
+  return null;
 }
 
-Platform.shim.eval = evaluatePlayerScript;
+async function decipherUrl(format, player) {
+  const raw = await format.decipher(player);
+  if (!raw) return null;
+  if (typeof raw === 'string') return raw;
+  return raw.url ?? null;
+}
 
 async function main() {
   const input = readFileSync('yt.txt', 'utf-8').trim();
@@ -40,7 +37,7 @@ async function main() {
     return;
   }
 
-  const videoId = input.match(/(?:v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/)?.[1];
+  const videoId = extractVideoId(input);
 
   if (!videoId) {
     throw new Error('有効なYouTube URLではありません: \n' + input);
@@ -63,10 +60,19 @@ async function main() {
   try {
     format = info.chooseFormat({ quality: 'best' });
   } catch (error) {
-    throw new Error('フォーマットの選択に失敗しました: ' + (error.message || error));
+    format = [
+      ...(info.streaming_data?.formats ?? []),
+      ...(info.streaming_data?.adaptive_formats ?? [])
+    ]
+      .filter(f => f.mime_type?.includes('video/mp4'))
+      .sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0];
+
+    if (!format) {
+      throw new Error('フォーマットの選択に失敗しました: ' + (error.message || error));
+    }
   }
 
-  const videoUrl = await format.decipher(yt.session.player);
+  const videoUrl = await decipherUrl(format, yt.session.player);
 
   if (!videoUrl) {
     throw new Error('Decipher returned an empty URL.');
