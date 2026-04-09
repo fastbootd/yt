@@ -44,7 +44,8 @@ async function main() {
   }
 
   const yt = await Innertube.create({
-    cache: new UniversalCache(false)
+    cache: new UniversalCache(true),
+    generate_session_locally: true
   });
 
   const info = await yt.getInfo(videoId);
