@@ -12,12 +12,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Cache YouTubei.js session
-        uses: actions/cache@v3
-        with:
-          path: .cache
-          key: yt-session-${{ runner.os }}
-          restore-keys: yt-session-
+      - name: Install yt-dlp
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yt-dlp
       - run: npm install
       - run: node src/main.js
       - run: cat yt.txt
