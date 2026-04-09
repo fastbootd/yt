@@ -1,4 +1,4 @@
-﻿import { Innertube, UniversalCache, Platform } from 'youtubei.js';
+﻿import { Innertube, UniversalCache, Platform, ProtoUtils } from 'youtubei.js';
 import { readFileSync, writeFileSync } from 'fs';
 import vm from 'node:vm';
 
@@ -12,6 +12,15 @@ return { ${props.join(', ')} }
 })()`;
   return vm.runInNewContext(code);
 };
+
+function generateRandomString(length) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
 
 function extractVideoId(input) {
   const match = input.match(/(?:v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/);
@@ -43,27 +52,40 @@ async function main() {
     throw new Error('有効なYouTube URLではありません: \n' + input);
   }
 
-  const clients = ['WEB', 'ANDROID', 'IOS'];
+  // Generate visitor_data for BotGuard bypass
+  const visitorData = ProtoUtils.encodeVisitorData(
+    generateRandomString(11),
+    Math.floor(Date.now() / 1000)
+  );
+
+  console.log(`Generated visitor_data: ${visitorData.substring(0, 20)}...`);
+
+  const clients = ['WEB', 'ANDROID', 'IOS', 'TV', 'MWEB'];
   let info = null;
   let usedClient = null;
+  let yt = null;
 
   // Try to use cookies from environment variable if available
   const cookies = process.env.YOUTUBE_COOKIES || null;
 
   for (const client of clients) {
     try {
-      console.log(`Trying with ${client} client...`);
+      console.log(`\nTrying with ${client} client...`);
+      
       const createOptions = {
         cache: new UniversalCache(true),
         generate_session_locally: true,
-        client_name: client
+        client_name: client,
+        retrieve_innertube_config: true,
+        visitor_data: visitorData,
+        enable_session_cache: true
       };
 
       if (cookies) {
         createOptions.cookie = cookies;
       }
 
-      const yt = await Innertube.create(createOptions);
+      yt = await Innertube.create(createOptions);
 
       info = await yt.getInfo(videoId);
 
@@ -92,13 +114,6 @@ async function main() {
 
     throw new Error(`Streaming data not available for this video. The video may be blocked, unavailable, or a live stream. (${status}${reason ? `: ${reason}` : ''})`);
   }
-
-  const yt = await Innertube.create({
-    cache: new UniversalCache(true),
-    generate_session_locally: true,
-    client_name: usedClient || 'WEB',
-    cookie: cookies || undefined
-  });
 
   let format;
   try {
