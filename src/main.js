@@ -86,15 +86,30 @@ async function main() {
   const cookiePath = writeCookies();
   
   try {
+    // Base arguments with bot mitigation
     const args = [
       '--format=best[ext=mp4]',
       '--skip-download',
       '--get-url',
+      // Add user agent to mimic real browser
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      // Add extra headers
+      '--add-header', 'Accept-Language:en-US,en;q=0.9',
+      '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      '--add-header', 'Sec-Fetch-Mode:navigate',
+      '--add-header', 'Sec-Fetch-Site:none',
+      '--add-header', 'Sec-Fetch-User:?1',
+      // Extractor args for YouTube
+      '--extractor-args', 'youtube:player_client=android,web',
+      '--extractor-args', 'youtube:player_skip=webpage,configs',
+      // Retry options
+      '--retries', '5',
+      '--fragment-retries', '5',
       input
     ];
 
     if (cookiePath) {
-      args.push('--cookies', cookiePath);
+      args.splice(args.indexOf(input), 0, '--cookies', cookiePath);
     }
 
     // Use yt-dlp to get the best mp4 format
@@ -110,12 +125,43 @@ async function main() {
   } catch (error) {
     console.error('✗ yt-dlp failed:', error.message);
     
-    // Fallback: Try to get info in JSON format
+    // Fallback: Try with different player client
     try {
-      console.log('\nTrying alternative method...');
+      console.log('\nTrying with Android client...');
+      const args = [
+        '--format=best[ext=mp4]',
+        '--skip-download',
+        '--get-url',
+        '--user-agent', 'com.google.android.youtube/19.02.39 (Linux; U; Android 13) gzip',
+        '--extractor-args', 'youtube:player_client=android',
+        '--no-check-certificate',
+        input
+      ];
+
+      if (cookiePath) {
+        args.push('--cookies', cookiePath);
+      }
+
+      const url = await runCommand('yt-dlp', args);
+      
+      if (url) {
+        writeFileSync('yt.txt', url);
+        console.log('✓ Retrieved URL using Android client');
+        console.log('完了');
+        return;
+      }
+    } catch (androidError) {
+      console.error('✗ Android client method failed:', androidError.message);
+    }
+
+    // Final fallback: Try to get info in JSON format with iOS client
+    try {
+      console.log('\nTrying with iOS client...');
       const args = [
         '--dump-json',
         '--skip-download',
+        '--user-agent', 'com.google.ios.youtube/19.02.3 (iPhone16,2; U; CPU iOS 17_2 like Mac OS X)',
+        '--extractor-args', 'youtube:player_client=ios',
         input
       ];
 
@@ -124,12 +170,11 @@ async function main() {
       }
 
       const jsonOutput = await runCommand('yt-dlp', args);
-
       const info = JSON.parse(jsonOutput);
       
       if (info.url) {
         writeFileSync('yt.txt', info.url);
-        console.log('✓ Retrieved URL using alternative method');
+        console.log('✓ Retrieved URL using iOS client');
         console.log('完了');
         return;
       }
@@ -147,21 +192,36 @@ async function main() {
         }
       }
 
-      throw new Error('yt-dlp returned no usable URL in JSON');
+      throw new Error('All methods failed to retrieve URL');
     } catch (fallbackError) {
-      console.error('✗ Fallback method also failed:', fallbackError.message);
+      console.error('✗ All fallback methods failed:', fallbackError.message);
       
-      if (!cookiePath) {
-        throw new Error(
-          `Failed to retrieve video URL.\n` +
+      const errorMsg = !cookiePath
+        ? `Failed to retrieve video URL.\n` +
           `このリポジトリに YOUTUBE_COOKIES シークレットを追加してください。\n` +
           `GitHub Settings → Secrets and variables → Actions で YOUTUBE_COOKIES を追加し、\n` +
           `ブラウザから YouTube の cookies をエクスポートしてください。\n` +
-          `${error.message}`
-        );
-      }
+          `\n特に重要な cookies:\n` +
+          `- __Secure-1PSID\n` +
+          `- __Secure-1PAPISID\n` +
+          `- __Secure-3PSID\n` +
+          `- __Secure-3PAPISID\n` +
+          `- SAPISID\n` +
+          `- APISID\n` +
+          `- HSID\n` +
+          `- SID\n` +
+          `- SSID\n` +
+          `- LOGIN_INFO\n` +
+          `\n${error.message}`
+        : `Failed to retrieve video URL even with cookies.\n` +
+          `考えられる原因:\n` +
+          `1. Cookies が期限切れ - 新しい cookies を取得してください\n` +
+          `2. YouTube が新しい bot 対策を導入した - yt-dlp の更新が必要\n` +
+          `3. 動画がプライベートまたは制限付き\n` +
+          `4. IP アドレスが一時的にブロックされている\n` +
+          `\n${error.message}`;
       
-      throw new Error(`Failed to retrieve video URL: ${error.message}`);
+      throw new Error(errorMsg);
     }
   }
 }
@@ -170,4 +230,3 @@ main().catch((error) => {
   console.error(error.message || error);
   process.exit(1);
 });
-

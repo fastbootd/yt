@@ -9,19 +9,64 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install yt-dlp
+      
+      - name: Install latest yt-dlp
         run: |
-          sudo apt-get update
-          sudo apt-get install -y yt-dlp
-      - run: npm install
-      - run: node src/main.js
+          # Remove old version if exists
+          sudo apt-get remove -y yt-dlp 2>/dev/null || true
+          
+          # Install latest version via pip
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade yt-dlp
+          
+          # Verify installation
+          yt-dlp --version
+          echo "yt-dlp installed successfully"
+      
+      - name: Install Node dependencies
+        run: npm install
+      
+      - name: Run video URL fetcher
+        run: node src/main.js
         env:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-      - run: cat yt.txt
-      - uses: actions/upload-artifact@v4
+        continue-on-error: false
+      
+      - name: Display result
+        if: success()
+        run: |
+          echo "=== Video URL ==="
+          cat yt.txt
+          echo ""
+          echo "=== URL length: $(wc -c < yt.txt) bytes ==="
+      
+      - name: Upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
           name: video-url
           path: yt.txt
+          retention-days: 7
+      
+      - name: Troubleshooting info
+        if: failure()
+        run: |
+          echo "=== yt-dlp version ==="
+          yt-dlp --version
+          echo ""
+          echo "=== Python version ==="
+          python3 --version
+          echo ""
+          echo "=== Node version ==="
+          node --version
+          echo ""
+          echo "=== Environment check ==="
+          if [ -z "$YOUTUBE_COOKIES" ]; then
+            echo "❌ YOUTUBE_COOKIES is not set"
+          else
+            echo "✓ YOUTUBE_COOKIES is set (length: ${#YOUTUBE_COOKIES})"
+          fi
